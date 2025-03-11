@@ -61,6 +61,7 @@ void free_wrapper(void *ptr) {
 }
 
 int main() {
+    printf("slru_create\n");
     slru_t *slru = slru_create(HASH_TABLE_SIZE, NUM_INITIAL_ITEMS, CACHE_SIZE,
         NULL, evict, malloc_wrapper, free_wrapper);
     if (!slru) {
@@ -85,6 +86,7 @@ int main() {
     uint32_t value6 = slru_fetch_strkey(slru, "345", 0);
     uint32_t value7 = slru_fetch_strkey(slru, "456", 0);
 
+    printf("slru_destroy\n");
     slru_destroy(slru);
     slru = NULL;
 

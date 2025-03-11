@@ -15,7 +15,7 @@
 #   define SLRU_ONLY_IN_DEBUG(x)
 #endif
 
-static uint32_t slru_cbs(uint32_t n) {
+static uint32_t slru_popcount(uint32_t n) {
     // https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
     n = n - ((n >> 1) & 0x55555555); // reuse input as temporary
     n = (n & 0x33333333) + ((n >> 2) & 0x33333333); // temp
@@ -23,7 +23,7 @@ static uint32_t slru_cbs(uint32_t n) {
 }
 
 static uint32_t slru_ctz(uint32_t x) {
-    return slru_cbs(~x & (x - 1));
+    return slru_popcount(~x & (x - 1));
 }
 
 static uint32_t slru_hash(const void *key, uint32_t len, uint32_t seed,
@@ -272,8 +272,17 @@ slru_t *slru_create(uint32_t hash_table_size, uint32_t num_initial_items,
 
 void slru_destroy(slru_t *slru) {
     slru_check_internal_state(slru);
-    for (uint32_t i = 0; i < slru->num_items; ++i)
-        slru->free_func(slru->items[i].key);
+
+    for (uint32_t i = 0; i < slru->num_items; ++i) {
+        slru_item_t *item = &slru->items[i];
+        if (item->consumption != 0) {
+            slru->free_func(slru->items[i].key);
+            slru->evict_func(slru->evict_user, item->value);
+        } else {
+            assert(item->key == NULL);
+        }
+    }
+
     slru->free_func(slru->items);
     slru->free_func(slru->hash_table);
     slru->free_func(slru);
