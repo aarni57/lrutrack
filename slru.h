@@ -8,6 +8,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define SLRU_OK 0
 #define SLRU_ERROR 1
 #define SLRU_OOM 2
@@ -44,5 +48,9 @@ int slru_remove_strkey(slru_t *slru, const char *key);
 
 uint32_t slru_fetch_strkey(slru_t *slru, const char *key,
     uint32_t invalid_value);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
