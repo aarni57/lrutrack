@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#define HASH_SEED 0xcafebabe
 #define HASH_TABLE_SIZE 256
 #define NUM_INITIAL_ITEMS 2
 #define CACHE_SIZE 8
@@ -63,7 +64,7 @@ void free_wrapper(void *ptr) {
 int main() {
     printf("slru_create\n");
     slru_t *slru = slru_create(HASH_TABLE_SIZE, NUM_INITIAL_ITEMS, CACHE_SIZE,
-        NULL, evict, malloc_wrapper, free_wrapper);
+        HASH_SEED, NULL, evict, malloc_wrapper, free_wrapper);
     if (!slru) {
         return EXIT_FAILURE;
     }

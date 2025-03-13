@@ -30,7 +30,8 @@ typedef void (*slru_free_func_t)(void *ptr);
 typedef struct slru_t slru_t;
 
 slru_t *slru_create(uint32_t hash_table_size, uint32_t num_initial_items,
-    uint32_t cache_size, void *evict_user, slru_evict_func_t evict_func,
+    uint32_t cache_size, uint32_t hash_seed,
+    void *evict_user, slru_evict_func_t evict_func,
     slru_malloc_func_t malloc_func, slru_free_func_t free_func);
 void slru_destroy(slru_t *slru);
 

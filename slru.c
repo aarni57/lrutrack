@@ -91,8 +91,8 @@ typedef struct slru_t {
     uint32_t hash_table_size;
     uint32_t lru_head; // Hash table index
     uint32_t lru_tail;
-    uint32_t seed;
     uint32_t first_free;
+    uint32_t seed;
     uint32_t cache_left;
     SLRU_ONLY_IN_DEBUG(uint32_t debug_cache_size;)
 } slru_t;
@@ -281,7 +281,8 @@ static void slru_move_to_lru_head(slru_t *slru, uint32_t i) {
 //
 
 slru_t *slru_create(uint32_t hash_table_size, uint32_t num_initial_items,
-    uint32_t cache_size, void *evict_user, slru_evict_func_t evict_func,
+    uint32_t cache_size, uint32_t hash_seed,
+    void *evict_user, slru_evict_func_t evict_func,
     slru_malloc_func_t malloc_func, slru_free_func_t free_func) {
     assert(hash_table_size != 0 && cache_size != 0);
     assert(slru_is_power_of_two(hash_table_size));
@@ -298,6 +299,8 @@ slru_t *slru_create(uint32_t hash_table_size, uint32_t num_initial_items,
 
     slru->malloc_func = malloc_func;
     slru->free_func = free_func;
+
+    slru->seed = hash_seed;
 
     slru->cache_left = cache_size;
     SLRU_ONLY_IN_DEBUG(slru->debug_cache_size = cache_size;)
