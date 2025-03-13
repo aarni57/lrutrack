@@ -77,7 +77,7 @@ typedef struct slru_item_t {
     uint16_t key_length;
     uint16_t consumption;
     uint32_t value;
-    uint32_t next;
+    uint32_t next; // Next item index on a hash table row
 } slru_item_t;
 
 typedef struct slru_t {
@@ -85,13 +85,13 @@ typedef struct slru_t {
     slru_evict_func_t evict_func;
     slru_malloc_func_t malloc_func;
     slru_free_func_t free_func;
-    uint32_t *hash_table;
+    uint32_t *hash_table; // Index for first item on a row
     uint32_t *hash_table_lru_links; // 2 * hash_table_size, 0 = prev, 1 = next
     slru_item_t *items;
     uint32_t num_items;
-    uint32_t num_items_allocated;
+    uint32_t num_items_in_use;
     uint32_t hash_table_size;
-    uint32_t lru_head;
+    uint32_t lru_head; // Hash table index
     uint32_t lru_tail;
     uint32_t seed;
     uint32_t first_free;
@@ -108,7 +108,7 @@ static void slru_check_internal_state(const slru_t *slru) {
     assert(slru->free_func);
     assert(slru->hash_table_size != 0);
 
-    assert(slru->num_items_allocated <= slru->num_items);
+    assert(slru->num_items_in_use <= slru->num_items);
 
     assert(slru->first_free == UINT32_MAX ||
         slru->first_free < slru->num_items);
@@ -143,18 +143,18 @@ static void slru_check_internal_state(const slru_t *slru) {
         }
     }
 
-    uint32_t num_items_allocated_counter = 0;
+    uint32_t num_items_in_use_counter = 0;
     uint32_t consumed_total = 0;
     for (uint32_t i = 0; i < slru->num_items; ++i) {
         if (slru->items[i].consumption != 0) {
             assert(slru->items[i].next == UINT32_MAX ||
                 slru->items[i].next < slru->num_items);
             consumed_total += slru->items[i].consumption;
-            num_items_allocated_counter++;
+            num_items_in_use_counter++;
         }
     }
 
-    assert(num_items_allocated_counter == slru->num_items_allocated);
+    assert(num_items_in_use_counter == slru->num_items_in_use);
     assert(consumed_total + slru->cache_left == slru->debug_cache_size);
 
     for (uint32_t i = 0; i < slru->hash_table_size; ++i) {
@@ -194,7 +194,7 @@ static int slru_evict_oldest(slru_t *slru) {
         item->key = NULL;
         assert(slru->evict_func);
         slru->evict_func(slru->evict_user, item->value);
-        slru->num_items_allocated--;
+        slru->num_items_in_use--;
         slru->cache_left += item->consumption;
         item->consumption = 0;
         uint32_t next = item->next;
@@ -224,8 +224,6 @@ static uint32_t slru_find_index(const slru_t *slru, const void *key,
 }
 
 static void slru_insert_to_lru_head(slru_t *slru, uint32_t i) {
-    assert(slru->hash_table_lru_links[i * 2 + 0] == UINT32_MAX);
-    assert(slru->hash_table_lru_links[i * 2 + 1] == UINT32_MAX);
     if (slru->lru_head != UINT32_MAX) {
         slru->hash_table_lru_links[slru->lru_head * 2 + 0] = i;
         slru->hash_table_lru_links[i * 2 + 1] = slru->lru_head;
@@ -237,9 +235,6 @@ static void slru_insert_to_lru_head(slru_t *slru, uint32_t i) {
 }
 
 static void slru_remove_from_lru(slru_t *slru, uint32_t i) {
-    assert(slru->lru_head != UINT32_MAX);
-    assert(slru->lru_tail != UINT32_MAX);
-
     if (slru->lru_head == slru->lru_tail) {
         slru->lru_head = UINT32_MAX;
         slru->lru_tail = UINT32_MAX;
@@ -268,7 +263,6 @@ static void slru_move_to_lru_head(slru_t *slru, uint32_t i) {
         if (i == slru->lru_tail) {
             slru->lru_tail = slru->hash_table_lru_links[i * 2 + 0];
             slru->hash_table_lru_links[i * 2 + 0] = UINT32_MAX;
-            assert(slru->hash_table_lru_links[slru->lru_tail * 2 + 1] == i);
             slru->hash_table_lru_links[slru->lru_tail * 2 + 1] = UINT32_MAX;
             slru->hash_table_lru_links[slru->lru_head * 2 + 0] = i;
             slru->hash_table_lru_links[i * 2 + 1] = slru->lru_head;
@@ -410,9 +404,7 @@ void slru_remove_all(slru_t *slru) {
     slru->items[slru->num_items - 1].next = UINT32_MAX;
     slru->first_free = 0;
 
-    slru->num_items_allocated = 0;
-
-    slru_check_internal_state(slru);
+    slru->num_items_in_use = 0;
 }
 
 int slru_insert(slru_t *slru, const void *key, uint16_t key_length,
@@ -499,6 +491,9 @@ int slru_insert(slru_t *slru, const void *key, uint16_t key_length,
     item->consumption = consumption;
 
     if (slru->hash_table[hash] == UINT32_MAX) {
+        // Hash table row not in LRU list yet
+        assert(slru->hash_table_lru_links[hash * 2 + 0] == UINT32_MAX);
+        assert(slru->hash_table_lru_links[hash * 2 + 1] == UINT32_MAX);
         slru_insert_to_lru_head(slru, hash);
     } else {
         slru_move_to_lru_head(slru, hash);
@@ -509,9 +504,7 @@ int slru_insert(slru_t *slru, const void *key, uint16_t key_length,
     item->next = slru->hash_table[hash];
     slru->hash_table[hash] = index;
 
-    slru->num_items_allocated++;
-
-    slru_check_internal_state(slru);
+    slru->num_items_in_use++;
 
     return SLRU_OK;
 }
@@ -558,9 +551,7 @@ int slru_remove(slru_t *slru, const void *key, uint16_t key_length) {
     slru->cache_left += item->consumption;
     item->consumption = 0; // Important to zero
 
-    slru->num_items_allocated--;
-
-    slru_check_internal_state(slru);
+    slru->num_items_in_use--;
 
     return SLRU_OK;
 }
@@ -577,7 +568,6 @@ uint32_t slru_fetch(slru_t *slru, const void *key, uint16_t key_length,
         return invalid_value;
 
     slru_move_to_lru_head(slru, hash);
-    slru_check_internal_state(slru);
 
     assert(index < slru->num_items);
     slru_item_t *item = &slru->items[index];
