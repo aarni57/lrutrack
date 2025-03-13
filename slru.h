@@ -32,18 +32,18 @@ void slru_destroy(slru_t *slru);
 
 void slru_remove_all(slru_t *slru);
 
-int slru_insert(slru_t *slru, const void *key, uint32_t key_length,
-    uint32_t value, uint32_t consumption);
-int slru_remove(slru_t *slru, const void *key, uint32_t key_length);
+int slru_insert(slru_t *slru, const void *key, uint16_t key_length,
+    uint32_t value, uint16_t consumption);
+int slru_remove(slru_t *slru, const void *key, uint16_t key_length);
 
-uint32_t slru_fetch(slru_t *slru, const void *key, uint32_t key_length,
+uint32_t slru_fetch(slru_t *slru, const void *key, uint16_t key_length,
     uint32_t invalid_value);
 
 //
 // c-string key helper functions
 
 int slru_insert_strkey(slru_t *slru, const char *key, uint32_t value,
-    uint32_t consumption);
+    uint16_t consumption);
 int slru_remove_strkey(slru_t *slru, const char *key);
 
 uint32_t slru_fetch_strkey(slru_t *slru, const char *key,
