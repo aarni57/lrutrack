@@ -12,6 +12,10 @@
 extern "C" {
 #endif
 
+#if !defined(SLRU_HC_TESTS)
+#   define SLRU_HC_TESTS 0
+#endif
+
 #define SLRU_OK 0
 #define SLRU_ERROR 1
 #define SLRU_OOM 2

@@ -7,11 +7,9 @@
 #include <string.h>
 #include <assert.h>
 
-#if !defined(NDEBUG) || defined(DEBUG)
-#   define SLRU_HC_TESTS 1
+#if !defined(NDEBUG)
 #   define SLRU_ONLY_IN_DEBUG(x) x
 #else
-#   define SLRU_HC_TESTS 0
 #   define SLRU_ONLY_IN_DEBUG(x)
 #endif
 
