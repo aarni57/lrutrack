@@ -4,15 +4,6 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define HASH_SEED 0xcafebabe
-#define HASH_TABLE_SIZE 256
-#define NUM_INITIAL_ITEMS 2
-#define CACHE_SIZE 8
-
-void evict(void *user, uint32_t value) {
-    printf("Evicting %u\n", value);
-}
-
 typedef struct tracked_allocation_t tracked_allocation_t;
 typedef struct tracked_allocation_t {
     void *ptr;
@@ -23,7 +14,7 @@ typedef struct tracked_allocation_t {
 static tracked_allocation_t allocations_head = { NULL, 0, NULL };
 static size_t total_bytes_allocated = 0;
 
-void *malloc_wrapper(size_t sz) {
+static void *malloc_wrapper(size_t sz) {
     void *ptr = malloc(sz);
     if (!ptr)
         return NULL;
@@ -39,7 +30,7 @@ void *malloc_wrapper(size_t sz) {
     return ptr;
 }
 
-void free_wrapper(void *ptr) {
+static void free_wrapper(void *ptr) {
     if (!ptr)
         return;
 
@@ -61,31 +52,66 @@ void free_wrapper(void *ptr) {
     free(ptr);
 }
 
+//
+
+static void evict(void *user, uint32_t value) {
+    printf("Evicting %u\n", value);
+}
+
+#define INVALID_VALUE 0
+
+static void _insert(slru_t *slru, const char *key, slru_value_t value) {
+    printf("Inserting %u\n", value);
+    slru_insert_strkey(slru, key, value);
+}
+
+static void _remove(slru_t *slru, const char *key) {
+    slru_remove_strkey(slru, key);
+}
+
+static void _fetch(slru_t *slru, const char *key, slru_value_t expected_value) {
+    uint32_t v = slru_fetch_strkey(slru, key);
+    if (v == INVALID_VALUE) {
+        printf("Fetching %s - not found\n", key);
+    } else {
+        printf("Fetching %s\n", key);
+        assert(v == expected_value);
+    }
+}
+
+#define HASH_SEED 0xcafebabe
+#define HASH_TABLE_SIZE 256
+#define NUM_INITIAL_ITEMS 2
+
 int main() {
     printf("slru_create\n");
-    slru_t *slru = slru_create(HASH_TABLE_SIZE, NUM_INITIAL_ITEMS, CACHE_SIZE,
-        HASH_SEED, NULL, evict, malloc_wrapper, free_wrapper);
+    slru_t *slru = slru_create(HASH_TABLE_SIZE, NUM_INITIAL_ITEMS, HASH_SEED,
+        INVALID_VALUE, NULL, evict, malloc_wrapper, free_wrapper);
     if (!slru) {
         return EXIT_FAILURE;
     }
 
-    slru_insert_strkey(slru, "123", 123, 5);
-    uint32_t value1 = slru_fetch_strkey(slru, "123", 0);
-    slru_insert_strkey(slru, "234", 234, 3);
-    uint32_t value2 = slru_fetch_strkey(slru, "123", 0);
-    slru_remove_strkey(slru, "123");
-    uint32_t value3 = slru_fetch_strkey(slru, "234", 0);
-    slru_insert_strkey(slru, "345", 345, 1);
-    slru_insert_strkey(slru, "456", 456, 3);
-    slru_insert_strkey(slru, "567", 567, 2);
-    slru_insert_strkey(slru, "678", 678, 1);
-    slru_insert_strkey(slru, "789", 789, 1);
-    uint32_t value4 = slru_fetch_strkey(slru, "123", 0);
-    uint32_t value5 = slru_fetch_strkey(slru, "234", 0);
-    slru_insert_strkey(slru, "890", 890, 1);
-    slru_remove_strkey(slru, "456");
-    uint32_t value6 = slru_fetch_strkey(slru, "345", 0);
-    uint32_t value7 = slru_fetch_strkey(slru, "456", 0);
+    _insert(slru, "123", 123);
+    _fetch(slru, "123", 123);
+    _insert(slru, "234", 234);
+    _fetch(slru, "123", 123);
+    _remove(slru, "123");
+    _fetch(slru, "234", 234);
+    _insert(slru, "345", 345);
+    _insert(slru, "456", 456);
+    _insert(slru, "567", 567);
+    slru_remove_lru(slru);
+    _insert(slru, "678", 678);
+    //slru_remove_all(slru);
+    _insert(slru, "789", 789);
+    slru_remove_lru(slru);
+    _fetch(slru, "123", 123);
+    _fetch(slru, "234", 234);
+    _fetch(slru, "456", 456);
+    _insert(slru, "890", 890);
+    _remove(slru, "456");
+    _fetch(slru, "345", 345);
+    _fetch(slru, "456", 456);
 
     printf("slru_destroy\n");
     slru_destroy(slru);
