@@ -34,6 +34,7 @@ static void free_wrapper(void *ptr) {
     if (!ptr)
         return;
 
+    int found = 0;
     tracked_allocation_t *prev = &allocations_head;
     tracked_allocation_t *iter = allocations_head.next;
     while (iter) {
@@ -42,6 +43,7 @@ static void free_wrapper(void *ptr) {
             total_bytes_allocated -= iter->sz;
             prev->next = iter->next;
             free(iter);
+            found = 1;
             break;
         }
 
@@ -49,28 +51,58 @@ static void free_wrapper(void *ptr) {
         iter = iter->next;
     }
 
+    assert(found);
     free(ptr);
 }
 
+#if LRUTRACK_32BIT_KEY
+
+#define FNV_32_PRIME ((uint32_t)0x01000193)
+
+static uint32_t fnv32a_str(const char *str, uint32_t seed) {
+    uint32_t hash = seed;
+    const unsigned char *s = (const unsigned char *)str;
+    while (*s) {
+        hash ^= (uint32_t)*s++;
+        hash *= FNV_32_PRIME;
+    }
+    return hash;
+}
+
+#endif
+
 //
 
-static void evict(void *user, uint32_t value) {
+static void evict(void *user, lrutrack_value_t value) {
     printf("Evicting %u\n", value);
 }
 
+#define HASH_SEED 0xcafebabe
 #define INVALID_VALUE 0
 
 static void _insert(lrutrack_t *t, const char *key, lrutrack_value_t value) {
     printf("Inserting %u\n", value);
+#if !LRUTRACK_32BIT_KEY
     lrutrack_insert_strkey(t, key, value);
+#else
+    lrutrack_insert(t, fnv32a_str(key, HASH_SEED), value);
+#endif
 }
 
 static void _remove(lrutrack_t *t, const char *key) {
+#if !LRUTRACK_32BIT_KEY
     lrutrack_remove_strkey(t, key);
+#else
+    lrutrack_remove(t, fnv32a_str(key, HASH_SEED));
+#endif
 }
 
 static void _use(lrutrack_t *t, const char *key, lrutrack_value_t expected_value) {
-    uint32_t v = lrutrack_use_strkey(t, key);
+#if !LRUTRACK_32BIT_KEY
+    lrutrack_value_t v = lrutrack_use_strkey(t, key);
+#else
+    lrutrack_value_t v = lrutrack_use(t, fnv32a_str(key, HASH_SEED));
+#endif
     if (v == INVALID_VALUE) {
         printf("Using %s - not found\n", key);
     } else {
@@ -79,7 +111,6 @@ static void _use(lrutrack_t *t, const char *key, lrutrack_value_t expected_value
     }
 }
 
-#define HASH_SEED 0xcafebabe
 #define HASH_TABLE_SIZE 256
 #define NUM_INITIAL_ITEMS 2
 

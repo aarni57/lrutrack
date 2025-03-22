@@ -17,6 +17,8 @@ static int lrutrack_is_power_of_two(uint32_t x) {
     return x > 0 && (x & (x - 1)) == 0;
 }
 
+#if !LRUTRACK_32BIT_KEY
+
 static uint32_t lrutrack_hash(const void *key, uint32_t len, uint32_t seed,
     uint32_t hash_table_size) {
     assert(lrutrack_is_power_of_two(hash_table_size));
@@ -68,11 +70,17 @@ static int lrutrack_cmp_keys(const void *a, uint32_t a_length,
     return memcmp(a, b, a_length) == 0 ? 1 : 0;
 }
 
+#endif
+
 //
 
 typedef struct lrutrack_item_t {
+#if !LRUTRACK_32BIT_KEY
     void *key;
     uint32_t key_length;
+#else
+    uint32_t key;
+#endif
     lrutrack_value_t value;
     uint32_t next; // Next item index (hash table row or free list)
 } lrutrack_item_t;
@@ -102,6 +110,7 @@ static void lrutrack_check_internal_state(const lrutrack_t *t) {
     assert(t->malloc_func);
     assert(t->free_func);
     assert(t->hash_table_size != 0);
+    assert(lrutrack_is_power_of_two(t->hash_table_size));
 
     assert(t->first_free == UINT32_MAX ||
         t->first_free < t->num_items);
@@ -150,6 +159,8 @@ static void lrutrack_check_internal_state(const lrutrack_t *t) {
 #endif
 }
 
+#if !LRUTRACK_32BIT_KEY
+
 static uint32_t lrutrack_find_index(const lrutrack_t *t, const void *key,
     uint32_t key_length, uint32_t hash) {
     assert(key != NULL && key_length != 0);
@@ -166,6 +177,24 @@ static uint32_t lrutrack_find_index(const lrutrack_t *t, const void *key,
     }
     return iter;
 }
+
+#else
+
+static uint32_t lrutrack_find_index(const lrutrack_t *t, uint32_t key,
+    uint32_t hash) {
+    assert(hash < t->hash_table_size);
+    assert(lrutrack_is_power_of_two(t->hash_table_size));
+    assert(hash == (key & (t->hash_table_size - 1)));
+    uint32_t iter = t->hash_table[hash];
+    assert(iter == UINT32_MAX || iter < t->num_items);
+    while (iter != UINT32_MAX && key != t->items[iter].key) {
+        iter = t->items[iter].next;
+        assert(iter == UINT32_MAX || iter < t->num_items);
+    }
+    return iter;
+}
+
+#endif
 
 static void lrutrack_insert_to_lru_head(lrutrack_t *t, uint32_t i) {
     if (t->lru_head != UINT32_MAX) {
@@ -309,10 +338,15 @@ void lrutrack_destroy(lrutrack_t *t) {
     for (uint32_t i = 0; i < t->num_items; ++i) {
         lrutrack_item_t *item = &t->items[i];
         if (item->value != t->invalid_value) {
+#if !LRUTRACK_32BIT_KEY
             t->free_func(t->items[i].key);
+#endif
             t->evict_func(t->evict_user, item->value);
         } else {
+#if !LRUTRACK_32BIT_KEY
             assert(item->key == NULL);
+#endif
+            assert(item->value == t->invalid_value);
         }
     }
 
@@ -322,56 +356,24 @@ void lrutrack_destroy(lrutrack_t *t) {
     t->free_func(t);
 }
 
-void lrutrack_remove_all(lrutrack_t *t) {
-    lrutrack_check_internal_state(t);
-
-    for (uint32_t i = 0; i < t->hash_table_size; ++i) {
-        uint32_t iter = t->hash_table[i];
-        while (iter != UINT32_MAX) {
-            assert(iter < t->num_items);
-            lrutrack_item_t *item = &t->items[iter];
-            assert(item->value != t->invalid_value);
-
-            assert(t->evict_func);
-            t->evict_func(t->evict_user, item->value);
-
-            t->free_func(item->key);
-            item->key = NULL;
-
-            item->value = t->invalid_value;
-
-            iter = item->next;
-        }
-    }
-
-    memset(t->hash_table, 0xff, sizeof(*t->hash_table) * t->hash_table_size);
-    memset(t->hash_table_lru_links, 0xff, sizeof(*t->hash_table_lru_links) * t->hash_table_size * 2);
-
-    if (t->num_items != 0) {
-        for (uint32_t i = 0; i < t->num_items - 1; ++i)
-            t->items[i].next = i + 1;
-
-        t->items[t->num_items - 1].next = UINT32_MAX;
-    }
-
-    t->lru_head = UINT32_MAX;
-    t->lru_tail = UINT32_MAX;
-
-    t->first_free = 0;
-
-    lrutrack_check_internal_state(t);
-}
-
+#if !LRUTRACK_32BIT_KEY
 int lrutrack_insert(lrutrack_t *t, const void *key, uint32_t key_length,
-    lrutrack_value_t value) {
+    lrutrack_value_t value)
+#else
+int lrutrack_insert(lrutrack_t *t, uint32_t key, lrutrack_value_t value)
+#endif
+{
     lrutrack_check_internal_state(t);
-    assert(key && key_length != 0);
     assert(value != t->invalid_value);
 
+#if !LRUTRACK_32BIT_KEY
+    assert(key && key_length != 0);
     uint32_t hash = lrutrack_hash(key, key_length, t->seed,
         t->hash_table_size);
-    assert(hash < t->hash_table_size);
     assert(lrutrack_find_index(t, key, key_length, hash) == UINT32_MAX);
+#else
+    uint32_t hash = key & (t->hash_table_size - 1);
+#endif
 
     if (t->first_free == UINT32_MAX) {
         if (t->num_items == 0) {
@@ -425,12 +427,16 @@ int lrutrack_insert(lrutrack_t *t, const void *key, uint32_t key_length,
 
     assert(item->value == t->invalid_value);
 
+#if !LRUTRACK_32BIT_KEY
     item->key = t->malloc_func(key_length);
     if (!item->key)
         return LRUTRACK_OOM;
 
     memcpy(item->key, key, key_length);
     item->key_length = key_length;
+#else
+    item->key = key;
+#endif
 
     item->value = value;
 
@@ -453,12 +459,24 @@ int lrutrack_insert(lrutrack_t *t, const void *key, uint32_t key_length,
     return LRUTRACK_OK;
 }
 
-int lrutrack_remove(lrutrack_t *t, const void *key, uint32_t key_length) {
-    assert(key != NULL && key_length != 0);
+#if !LRUTRACK_32BIT_KEY
+int lrutrack_remove(lrutrack_t *t, const void *key, uint32_t key_length)
+#else
+int lrutrack_remove(lrutrack_t *t, uint32_t key)
+#endif
+{
     lrutrack_check_internal_state(t);
+
+#if !LRUTRACK_32BIT_KEY
+    assert(key != NULL && key_length != 0);
     uint32_t hash = lrutrack_hash(key, key_length, t->seed,
         t->hash_table_size);
     uint32_t index = lrutrack_find_index(t, key, key_length, hash);
+#else
+    uint32_t hash = key & (t->hash_table_size - 1);
+    uint32_t index = lrutrack_find_index(t, key, hash);
+#endif
+
     if (index == UINT32_MAX)
         return LRUTRACK_NOT_FOUND;
 
@@ -493,14 +511,112 @@ int lrutrack_remove(lrutrack_t *t, const void *key, uint32_t key_length) {
     item->next = t->first_free;
     t->first_free = index;
 
+#if !LRUTRACK_32BIT_KEY
     t->free_func(item->key);
     item->key = NULL;
+#endif
 
     item->value = t->invalid_value;
 
     lrutrack_check_internal_state(t);
 
     return LRUTRACK_OK;
+}
+
+#if !LRUTRACK_32BIT_KEY
+lrutrack_value_t lrutrack_use(lrutrack_t *t, const void *key,
+    uint32_t key_length)
+#else
+lrutrack_value_t lrutrack_use(lrutrack_t *t, uint32_t key)
+#endif
+{
+    lrutrack_check_internal_state(t);
+
+#if !LRUTRACK_32BIT_KEY
+    assert(key != NULL && key_length != 0);
+    uint32_t hash = lrutrack_hash(key, key_length, t->seed,
+        t->hash_table_size);
+    uint32_t index = lrutrack_find_index(t, key, key_length, hash);
+#else
+    uint32_t hash = key & (t->hash_table_size - 1);
+    uint32_t index = lrutrack_find_index(t, key, hash);
+#endif
+
+    if (index == UINT32_MAX)
+        return t->invalid_value;
+
+    lrutrack_move_to_lru_head(t, hash);
+
+    assert(index < t->num_items);
+    lrutrack_item_t *item = &t->items[index];
+    return item->value;
+}
+
+#if !LRUTRACK_32BIT_KEY
+
+//
+// c-string key helper functions
+
+int lrutrack_insert_strkey(lrutrack_t *t, const char *key,
+    lrutrack_value_t value) {
+    assert(key != NULL && strlen(key) <= UINT32_MAX);
+    return lrutrack_insert(t, key, (uint32_t)strlen(key), value);
+}
+
+int lrutrack_remove_strkey(lrutrack_t *t, const char *key) {
+    assert(key != NULL && strlen(key) <= UINT32_MAX);
+    return lrutrack_remove(t, key, (uint32_t)strlen(key));
+}
+
+lrutrack_value_t lrutrack_use_strkey(lrutrack_t *t, const char *key) {
+    assert(key != NULL && strlen(key) <= UINT32_MAX);
+    return lrutrack_use(t, key, (uint32_t)strlen(key));
+}
+
+#endif
+
+//
+
+void lrutrack_remove_all(lrutrack_t *t) {
+    lrutrack_check_internal_state(t);
+
+    for (uint32_t i = 0; i < t->hash_table_size; ++i) {
+        uint32_t iter = t->hash_table[i];
+        while (iter != UINT32_MAX) {
+            assert(iter < t->num_items);
+            lrutrack_item_t *item = &t->items[iter];
+            assert(item->value != t->invalid_value);
+
+            assert(t->evict_func);
+            t->evict_func(t->evict_user, item->value);
+
+#if !LRUTRACK_32BIT_KEY
+            t->free_func(item->key);
+            item->key = NULL;
+#endif
+
+            item->value = t->invalid_value;
+
+            iter = item->next;
+        }
+    }
+
+    memset(t->hash_table, 0xff, sizeof(*t->hash_table) * t->hash_table_size);
+    memset(t->hash_table_lru_links, 0xff, sizeof(*t->hash_table_lru_links) * t->hash_table_size * 2);
+
+    if (t->num_items != 0) {
+        for (uint32_t i = 0; i < t->num_items - 1; ++i)
+            t->items[i].next = i + 1;
+
+        t->items[t->num_items - 1].next = UINT32_MAX;
+    }
+
+    t->lru_head = UINT32_MAX;
+    t->lru_tail = UINT32_MAX;
+
+    t->first_free = 0;
+
+    lrutrack_check_internal_state(t);
 }
 
 int lrutrack_remove_lru(lrutrack_t *t) {
@@ -530,8 +646,10 @@ int lrutrack_remove_lru(lrutrack_t *t) {
         lrutrack_item_t *item = &t->items[iter];
         assert(item->value != t->invalid_value);
 
+#if !LRUTRACK_32BIT_KEY
         t->free_func(item->key);
         item->key = NULL;
+#endif
 
         assert(t->evict_func);
         t->evict_func(t->evict_user, item->value);
@@ -548,41 +666,4 @@ int lrutrack_remove_lru(lrutrack_t *t) {
     lrutrack_check_internal_state(t);
 
     return LRUTRACK_OK;
-}
-
-lrutrack_value_t lrutrack_use(lrutrack_t *t, const void *key,
-    uint32_t key_length) {
-    assert(key != NULL && key_length != 0);
-    lrutrack_check_internal_state(t);
-
-    uint32_t hash = lrutrack_hash(key, key_length, t->seed,
-        t->hash_table_size);
-    uint32_t index = lrutrack_find_index(t, key, key_length, hash);
-    if (index == UINT32_MAX)
-        return t->invalid_value;
-
-    lrutrack_move_to_lru_head(t, hash);
-
-    assert(index < t->num_items);
-    lrutrack_item_t *item = &t->items[index];
-    return item->value;
-}
-
-//
-// c-string key helper functions
-
-int lrutrack_insert_strkey(lrutrack_t *t, const char *key,
-    lrutrack_value_t value) {
-    assert(key != NULL && strlen(key) <= UINT32_MAX);
-    return lrutrack_insert(t, key, (uint32_t)strlen(key), value);
-}
-
-int lrutrack_remove_strkey(lrutrack_t *t, const char *key) {
-    assert(key != NULL && strlen(key) <= UINT32_MAX);
-    return lrutrack_remove(t, key, (uint32_t)strlen(key));
-}
-
-lrutrack_value_t lrutrack_use_strkey(lrutrack_t *t, const char *key) {
-    assert(key != NULL && strlen(key) <= UINT32_MAX);
-    return lrutrack_use(t, key, (uint32_t)strlen(key));
 }
