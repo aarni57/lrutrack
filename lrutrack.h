@@ -61,7 +61,7 @@ lrutrack_value_t lrutrack_use(lrutrack_t *t, const void *key,
     uint32_t key_length);
 
 //
-// Zero-terminated string key helper functions:
+// Null-terminated string key helper functions:
 
 int lrutrack_insert_strkey(lrutrack_t *t, const char *key,
     lrutrack_value_t value);
@@ -79,7 +79,7 @@ int lrutrack_insert(lrutrack_t *t, uint32_t key, lrutrack_value_t value);
 int lrutrack_remove(lrutrack_t *t, uint32_t key);
 lrutrack_value_t lrutrack_use(lrutrack_t *t, uint32_t key);
 
-#endif // LRUTRACK_UINT32_KEY
+#endif // LRUTRACK_32BIT_KEY
 
 //
 // Cleaning functions:
