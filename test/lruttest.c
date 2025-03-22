@@ -1,4 +1,4 @@
-#include "slru.h"
+#include "lrutrack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,21 +60,21 @@ static void evict(void *user, uint32_t value) {
 
 #define INVALID_VALUE 0
 
-static void _insert(slru_t *slru, const char *key, slru_value_t value) {
+static void _insert(lrutrack_t *t, const char *key, lrutrack_value_t value) {
     printf("Inserting %u\n", value);
-    slru_insert_strkey(slru, key, value);
+    lrutrack_insert_strkey(t, key, value);
 }
 
-static void _remove(slru_t *slru, const char *key) {
-    slru_remove_strkey(slru, key);
+static void _remove(lrutrack_t *t, const char *key) {
+    lrutrack_remove_strkey(t, key);
 }
 
-static void _fetch(slru_t *slru, const char *key, slru_value_t expected_value) {
-    uint32_t v = slru_fetch_strkey(slru, key);
+static void _use(lrutrack_t *t, const char *key, lrutrack_value_t expected_value) {
+    uint32_t v = lrutrack_use_strkey(t, key);
     if (v == INVALID_VALUE) {
-        printf("Fetching %s - not found\n", key);
+        printf("Using %s - not found\n", key);
     } else {
-        printf("Fetching %s\n", key);
+        printf("Using %s\n", key);
         assert(v == expected_value);
     }
 }
@@ -84,38 +84,38 @@ static void _fetch(slru_t *slru, const char *key, slru_value_t expected_value) {
 #define NUM_INITIAL_ITEMS 2
 
 int main() {
-    printf("slru_create\n");
-    slru_t *slru = slru_create(HASH_TABLE_SIZE, NUM_INITIAL_ITEMS, HASH_SEED,
+    printf("lrutrack_create\n");
+    lrutrack_t *t = lrutrack_create(HASH_TABLE_SIZE, NUM_INITIAL_ITEMS, HASH_SEED,
         INVALID_VALUE, NULL, evict, malloc_wrapper, free_wrapper);
-    if (!slru) {
+    if (!t) {
         return EXIT_FAILURE;
     }
 
-    _insert(slru, "123", 123);
-    _fetch(slru, "123", 123);
-    _insert(slru, "234", 234);
-    _fetch(slru, "123", 123);
-    _remove(slru, "123");
-    _fetch(slru, "234", 234);
-    _insert(slru, "345", 345);
-    _insert(slru, "456", 456);
-    _insert(slru, "567", 567);
-    slru_remove_lru(slru);
-    _insert(slru, "678", 678);
-    //slru_remove_all(slru);
-    _insert(slru, "789", 789);
-    slru_remove_lru(slru);
-    _fetch(slru, "123", 123);
-    _fetch(slru, "234", 234);
-    _fetch(slru, "456", 456);
-    _insert(slru, "890", 890);
-    _remove(slru, "456");
-    _fetch(slru, "345", 345);
-    _fetch(slru, "456", 456);
+    _insert(t, "123", 123);
+    _use(t, "123", 123);
+    _insert(t, "234", 234);
+    _use(t, "123", 123);
+    _remove(t, "123");
+    _use(t, "234", 234);
+    _insert(t, "345", 345);
+    _insert(t, "456", 456);
+    _insert(t, "567", 567);
+    lrutrack_remove_lru(t);
+    _insert(t, "678", 678);
+    //lrutrack_remove_all(t);
+    _insert(t, "789", 789);
+    lrutrack_remove_lru(t);
+    _use(t, "123", 123);
+    _use(t, "234", 234);
+    _use(t, "456", 456);
+    _insert(t, "890", 890);
+    _remove(t, "456");
+    _use(t, "345", 345);
+    _use(t, "456", 456);
 
-    printf("slru_destroy\n");
-    slru_destroy(slru);
-    slru = NULL;
+    printf("lrutrack_destroy\n");
+    lrutrack_destroy(t);
+    t = NULL;
 
     assert(total_bytes_allocated == 0);
     assert(allocations_head.next == NULL);

@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(slru)
+project(lrutrack)
 
 set(SOURCE_FILES
-   slru.c
-   slru.h
+   lrutrack.c
+   lrutrack.h
 )
 
 add_library(${PROJECT_NAME} ${SOURCE_FILES})

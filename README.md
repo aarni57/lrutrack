@@ -1,2 +1,2 @@
-# slru
-Simple least-recently-used cache implementation in C
+# Least-recently-used tracking helper in C
+

@@ -1,15 +1,15 @@
 cmake_minimum_required(VERSION 3.14)
 
-add_subdirectory(".." "slru")
+add_subdirectory(".." "lrutrack")
 
-project(slrutest)
+project(lruttest)
 
 include_directories(. ..)
 
 set(SOURCE_FILES
-    slrutest.c
+    lruttest.c
 )
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 
-target_link_libraries(${PROJECT_NAME} slru)
+target_link_libraries(${PROJECT_NAME} lrutrack)
