@@ -12,18 +12,11 @@
 extern "C" {
 #endif
 
-#if !defined(LRUTRACK_32BIT_KEY)
-#   define LRUTRACK_32BIT_KEY 0
-#endif
+#define LRUTRACK_ERROR -1
+#define LRUTRACK_OOM -2
+#define LRUTRACK_NOT_FOUND -3
 
-#if !defined(LRUTRACK_HC_TESTS)
-#   define LRUTRACK_HC_TESTS 0
-#endif
-
-#define LRUTRACK_OK 0
-#define LRUTRACK_ERROR 1
-#define LRUTRACK_OOM 2
-#define LRUTRACK_NOT_FOUND 3
+#define lrutrack_is_ok(x) ((x) >= 0)
 
 //
 // Types:
@@ -75,9 +68,9 @@ lrutrack_value_t lrutrack_use_strkey(lrutrack_t *t, const char *key);
 //
 // 32-bit key functions:
 
-int lrutrack_insert(lrutrack_t *t, uint32_t key, lrutrack_value_t value);
-int lrutrack_remove(lrutrack_t *t, uint32_t key);
-lrutrack_value_t lrutrack_use(lrutrack_t *t, uint32_t key);
+int lrutrack_insert_32(lrutrack_t *t, uint32_t key, lrutrack_value_t value);
+int lrutrack_remove_32(lrutrack_t *t, uint32_t key);
+lrutrack_value_t lrutrack_use_32(lrutrack_t *t, uint32_t key);
 
 #endif // LRUTRACK_32BIT_KEY
 
@@ -85,7 +78,7 @@ lrutrack_value_t lrutrack_use(lrutrack_t *t, uint32_t key);
 // Cleaning functions:
 
 void lrutrack_remove_all(lrutrack_t *t);
-int lrutrack_remove_lru(lrutrack_t *t);
+int lrutrack_remove_lru_bucket(lrutrack_t *t);
 
 #ifdef __cplusplus
 }

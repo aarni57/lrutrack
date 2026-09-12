@@ -74,6 +74,7 @@ static uint32_t fnv32a_str(const char *str, uint32_t seed) {
 //
 
 static void evict(void *user, lrutrack_value_t value) {
+    (void)user;
     printf("Evicting %u\n", value);
 }
 
@@ -85,7 +86,7 @@ static void _insert(lrutrack_t *t, const char *key, lrutrack_value_t value) {
 #if !LRUTRACK_32BIT_KEY
     lrutrack_insert_strkey(t, key, value);
 #else
-    lrutrack_insert(t, fnv32a_str(key, HASH_SEED), value);
+    lrutrack_insert_32(t, fnv32a_str(key, HASH_SEED), value);
 #endif
 }
 
@@ -93,7 +94,7 @@ static void _remove(lrutrack_t *t, const char *key) {
 #if !LRUTRACK_32BIT_KEY
     lrutrack_remove_strkey(t, key);
 #else
-    lrutrack_remove(t, fnv32a_str(key, HASH_SEED));
+    lrutrack_remove_32(t, fnv32a_str(key, HASH_SEED));
 #endif
 }
 
@@ -101,7 +102,7 @@ static void _use(lrutrack_t *t, const char *key, lrutrack_value_t expected_value
 #if !LRUTRACK_32BIT_KEY
     lrutrack_value_t v = lrutrack_use_strkey(t, key);
 #else
-    lrutrack_value_t v = lrutrack_use(t, fnv32a_str(key, HASH_SEED));
+    lrutrack_value_t v = lrutrack_use_32(t, fnv32a_str(key, HASH_SEED));
 #endif
     if (v == INVALID_VALUE) {
         printf("Using %s - not found\n", key);
@@ -131,11 +132,11 @@ int main() {
     _insert(t, "345", 345);
     _insert(t, "456", 456);
     _insert(t, "567", 567);
-    lrutrack_remove_lru(t);
+    lrutrack_remove_lru_bucket(t);
     _insert(t, "678", 678);
     //lrutrack_remove_all(t);
     _insert(t, "789", 789);
-    lrutrack_remove_lru(t);
+    lrutrack_remove_lru_bucket(t);
     _use(t, "123", 123);
     _use(t, "234", 234);
     _use(t, "456", 456);

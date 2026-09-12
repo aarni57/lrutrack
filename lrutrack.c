@@ -361,7 +361,7 @@ void lrutrack_destroy(lrutrack_t *t) {
 int lrutrack_insert(lrutrack_t *t, const void *key, uint32_t key_length,
     lrutrack_value_t value)
 #else
-int lrutrack_insert(lrutrack_t *t, uint32_t key, lrutrack_value_t value)
+int lrutrack_insert_32(lrutrack_t *t, uint32_t key, lrutrack_value_t value)
 #endif
 {
     lrutrack_check_internal_state(t);
@@ -459,13 +459,13 @@ int lrutrack_insert(lrutrack_t *t, uint32_t key, lrutrack_value_t value)
 
     lrutrack_check_internal_state(t);
 
-    return LRUTRACK_OK;
+    return 0;
 }
 
 #if !LRUTRACK_32BIT_KEY
 int lrutrack_remove(lrutrack_t *t, const void *key, uint32_t key_length)
 #else
-int lrutrack_remove(lrutrack_t *t, uint32_t key)
+int lrutrack_remove_32(lrutrack_t *t, uint32_t key)
 #endif
 {
     lrutrack_check_internal_state(t);
@@ -523,14 +523,14 @@ int lrutrack_remove(lrutrack_t *t, uint32_t key)
 
     lrutrack_check_internal_state(t);
 
-    return LRUTRACK_OK;
+    return 0;
 }
 
 #if !LRUTRACK_32BIT_KEY
 lrutrack_value_t lrutrack_use(lrutrack_t *t, const void *key,
     uint32_t key_length)
 #else
-lrutrack_value_t lrutrack_use(lrutrack_t *t, uint32_t key)
+lrutrack_value_t lrutrack_use_32(lrutrack_t *t, uint32_t key)
 #endif
 {
     lrutrack_check_internal_state(t);
@@ -625,7 +625,7 @@ void lrutrack_remove_all(lrutrack_t *t) {
     lrutrack_check_internal_state(t);
 }
 
-int lrutrack_remove_lru(lrutrack_t *t) {
+int lrutrack_remove_lru_bucket(lrutrack_t *t) {
     lrutrack_check_internal_state(t);
 
     if (t->lru_tail == UINT32_MAX) {
@@ -646,6 +646,8 @@ int lrutrack_remove_lru(lrutrack_t *t) {
     if (t->lru_head == t->lru_tail)
         t->lru_head = new_tail;
     t->lru_tail = new_tail;
+
+    int num_removed = 0;
 
     while (iter != UINT32_MAX) {
         assert(iter < t->num_items);
@@ -668,9 +670,11 @@ int lrutrack_remove_lru(lrutrack_t *t) {
 
         t->first_free = iter;
         iter = next;
+
+        ++num_removed;
     }
 
     lrutrack_check_internal_state(t);
 
-    return LRUTRACK_OK;
+    return num_removed;
 }
