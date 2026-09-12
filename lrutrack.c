@@ -109,8 +109,8 @@ static void lrutrack_check_internal_state(const lrutrack_t *t) {
     assert(t);
     assert(t->malloc_func);
     assert(t->free_func);
-    assert(t->hash_table_size != 0);
-    assert(lrutrack_is_power_of_two(t->hash_table_size));
+    assert((t->hash_table_size == 0 && !t->hash_table && !t->hash_table_lru_links) || (t->hash_table_size != 0 && t->hash_table && t->hash_table_lru_links));
+    assert(t->hash_table_size == 0 || lrutrack_is_power_of_two(t->hash_table_size));
 
     assert(t->first_free == UINT32_MAX ||
         t->first_free < t->num_items);
@@ -148,11 +148,9 @@ static void lrutrack_check_internal_state(const lrutrack_t *t) {
     for (uint32_t i = 0; i < t->hash_table_size; ++i) {
         assert(t->hash_table[i] == UINT32_MAX ||
             t->hash_table[i] < t->num_items);
-
-        uint32_t iter = 0;
+        uint32_t iter = t->hash_table[i];
         while (iter != UINT32_MAX) {
             const lrutrack_item_t *item = &t->items[iter];
-
             iter = item->next;
         }
     }
@@ -265,9 +263,25 @@ lrutrack_t *lrutrack_create(uint32_t hash_table_size,
     assert(lrutrack_is_power_of_two(hash_table_size));
     assert(evict_func && malloc_func && free_func);
 
-    lrutrack_t *t = malloc_func(sizeof(lrutrack_t));
-    if (!t)
+    size_t hash_table_bytesize = sizeof(uint32_t) * hash_table_size;
+    uint32_t *hash_table = malloc_func(hash_table_bytesize);
+    if (!hash_table)
         return NULL;
+
+    size_t hash_table_lru_links_bytesize =
+        sizeof(uint32_t) * hash_table_size * 2;
+    uint32_t *hash_table_lru_links = malloc_func(hash_table_lru_links_bytesize);
+    if (!hash_table_lru_links) {
+        free_func(hash_table);
+        return NULL;
+    }
+
+    lrutrack_t *t = malloc_func(sizeof(lrutrack_t));
+    if (!t) {
+        free_func(hash_table);
+        free_func(hash_table_lru_links);
+        return NULL;
+    }
 
     memset(t, 0, sizeof(*t));
 
@@ -277,34 +291,23 @@ lrutrack_t *lrutrack_create(uint32_t hash_table_size,
     t->malloc_func = malloc_func;
     t->free_func = free_func;
 
+    t->lru_head = UINT32_MAX;
+    t->lru_tail = UINT32_MAX;
+    t->first_free = UINT32_MAX;
+
     t->seed = hash_seed;
     t->invalid_value = invalid_value;
 
-    size_t hash_table_bytesize = sizeof(*t->hash_table) * hash_table_size;
-    t->hash_table = t->malloc_func(hash_table_bytesize);
-    if (!t->hash_table) {
-        lrutrack_destroy(t);
-        return NULL;
-    }
-
+    t->hash_table = hash_table;
     memset(t->hash_table, 0xff, hash_table_bytesize);
 
-    size_t hash_table_lru_links_bytesize =
-        sizeof(*t->hash_table_lru_links) * hash_table_size * 2;
-    t->hash_table_lru_links = t->malloc_func(hash_table_lru_links_bytesize);
-    if (!t->hash_table_lru_links) {
-        lrutrack_destroy(t);
-        return NULL;
-    }
-
+    t->hash_table_lru_links = hash_table_lru_links;
     memset(t->hash_table_lru_links, 0xff, hash_table_lru_links_bytesize);
 
     t->hash_table_size = hash_table_size;
-    t->lru_head = UINT32_MAX;
-    t->lru_tail = UINT32_MAX;
 
     if (num_initial_items != 0) {
-        uint32_t items_bytesize = sizeof(*t->items) * num_initial_items;
+        size_t items_bytesize = sizeof(*t->items) * num_initial_items;
         t->items = t->malloc_func(items_bytesize);
         if (!t->items) {
             lrutrack_destroy(t);
@@ -323,8 +326,6 @@ lrutrack_t *lrutrack_create(uint32_t hash_table_size,
 
         t->num_items = num_initial_items;
         t->first_free = 0;
-    } else {
-        t->first_free = UINT32_MAX;
     }
 
     lrutrack_check_internal_state(t);
@@ -376,49 +377,51 @@ int lrutrack_insert(lrutrack_t *t, uint32_t key, lrutrack_value_t value)
 #endif
 
     if (t->first_free == UINT32_MAX) {
-        if (t->num_items == 0) {
-            uint32_t num_items = t->hash_table_size;
-            assert(lrutrack_is_power_of_two(num_items));
+        uint32_t old_num_items = t->num_items;
 
-            t->items = t->malloc_func(sizeof(*t->items) *
-                num_items);
+        if (old_num_items == 0) {
+            uint32_t new_num_items = t->hash_table_size;
+            assert(lrutrack_is_power_of_two(new_num_items));
+
+            t->items = t->malloc_func(sizeof(*t->items) * new_num_items);
             if (!t->items)
                 return LRUTRACK_OOM;
 
-            t->num_items = num_items;
-
-            for (uint32_t i = 0; i < t->num_items - 1; ++i)
-                t->items[i].next = i + 1;
-
-            t->items[t->num_items - 1].next = UINT32_MAX;
-            t->first_free = 0;
+            t->num_items = new_num_items;
         } else {
-            lrutrack_item_t *old_items = t->items;
-            uint32_t old_num_items = t->num_items;
-            t->num_items *= 2;
+            uint32_t new_num_items = t->num_items * 2;
 
-            uint32_t items_bytesize = sizeof(*t->items) * t->num_items;
-            t->items = t->malloc_func(items_bytesize);
-            if (!t->items)
+            size_t items_bytesize = sizeof(*t->items) * new_num_items;
+            lrutrack_item_t *new_items = t->malloc_func(items_bytesize);
+            if (!new_items)
                 return LRUTRACK_OOM;
 
-            uint32_t old_items_bytesize = sizeof(*t->items) * old_num_items;
-            memcpy(t->items, old_items, old_items_bytesize);
-            t->free_func(old_items);
+            size_t old_items_bytesize = sizeof(*t->items) * t->num_items;
+            memcpy(new_items, t->items, old_items_bytesize);
+            t->free_func(t->items);
 
-            memset(t->items + old_num_items, 0,
-                items_bytesize - old_items_bytesize);
-
-            for (uint32_t i = old_num_items; i < t->num_items - 1; ++i) {
-                t->items[i].value = t->invalid_value;
-                t->items[i].next = i + 1;
-            }
-
-            t->items[t->num_items - 1].value = t->invalid_value;
-            t->items[t->num_items - 1].next = UINT32_MAX;
-
-            t->first_free = old_num_items;
+            t->items = new_items;
+            t->num_items = new_num_items;
         }
+
+        for (uint32_t i = old_num_items; i < t->num_items - 1; ++i) {
+#if !LRUTRACK_32BIT_KEY
+            t->items[i].key = NULL;
+            t->items[i].key_length = 0;
+#endif
+            t->items[i].value = t->invalid_value;
+            t->items[i].next = i + 1;
+        }
+
+        uint32_t last_index = t->num_items - 1;
+#if !LRUTRACK_32BIT_KEY
+        t->items[last_index].key = NULL;
+        t->items[last_index].key_length = 0;
+#endif
+        t->items[last_index].value = t->invalid_value;
+        t->items[last_index].next = UINT32_MAX;
+
+        t->first_free = old_num_items;
     }
 
     uint32_t index = t->first_free; // Take first free
@@ -593,6 +596,7 @@ void lrutrack_remove_all(lrutrack_t *t) {
 #if !LRUTRACK_32BIT_KEY
             t->free_func(item->key);
             item->key = NULL;
+            item->key_length = 0;
 #endif
 
             item->value = t->invalid_value;
@@ -609,12 +613,14 @@ void lrutrack_remove_all(lrutrack_t *t) {
             t->items[i].next = i + 1;
 
         t->items[t->num_items - 1].next = UINT32_MAX;
+
+        t->first_free = 0;
+    } else {
+        t->first_free = UINT32_MAX;
     }
 
     t->lru_head = UINT32_MAX;
     t->lru_tail = UINT32_MAX;
-
-    t->first_free = 0;
 
     lrutrack_check_internal_state(t);
 }
@@ -649,6 +655,7 @@ int lrutrack_remove_lru(lrutrack_t *t) {
 #if !LRUTRACK_32BIT_KEY
         t->free_func(item->key);
         item->key = NULL;
+        item->key_length = 0;
 #endif
 
         assert(t->evict_func);
