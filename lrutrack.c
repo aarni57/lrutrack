@@ -5,12 +5,16 @@
 #include "lrutrack.h"
 
 #include <string.h>
-#include <assert.h>
 
 #if !defined(NDEBUG)
 #   define LRUTRACK_ONLY_IN_DEBUG(x) x
+#	include <assert.h>
+#	define lrutrack_assert(x) assert(x)
+#	define lrutrack_assert_var_nonzero(ptr) assert(ptr)
 #else
 #   define LRUTRACK_ONLY_IN_DEBUG(x)
+#	define lrutrack_assert(x) (void)0
+#	define lrutrack_assert_var_nonzero(ptr) (void)ptr
 #endif
 
 static int lrutrack_is_power_of_two(uint32_t x) {
@@ -21,7 +25,7 @@ static int lrutrack_is_power_of_two(uint32_t x) {
 
 static uint32_t lrutrack_hash(const void *key, uint32_t len, uint32_t seed,
     uint32_t hash_table_size) {
-    assert(lrutrack_is_power_of_two(hash_table_size));
+    lrutrack_assert(lrutrack_is_power_of_two(hash_table_size));
 
     const uint32_t m = 0x5bd1e995;
     const uint32_t r = 24;
@@ -106,47 +110,47 @@ typedef struct lrutrack_t {
 // Private functions
 
 static void lrutrack_check_internal_state(const lrutrack_t *t) {
-    assert(t);
-    assert(t->malloc_func);
-    assert(t->free_func);
-    assert((t->hash_table_size == 0 && !t->hash_table && !t->hash_table_lru_links) || (t->hash_table_size != 0 && t->hash_table && t->hash_table_lru_links));
-    assert(t->hash_table_size == 0 || lrutrack_is_power_of_two(t->hash_table_size));
+    lrutrack_assert_var_nonzero(t);
+    lrutrack_assert(t->malloc_func);
+    lrutrack_assert(t->free_func);
+    lrutrack_assert((t->hash_table_size == 0 && !t->hash_table && !t->hash_table_lru_links) || (t->hash_table_size != 0 && t->hash_table && t->hash_table_lru_links));
+    lrutrack_assert(t->hash_table_size == 0 || lrutrack_is_power_of_two(t->hash_table_size));
 
-    assert(t->first_free == UINT32_MAX ||
+    lrutrack_assert(t->first_free == UINT32_MAX ||
         t->first_free < t->num_items);
 
-    assert(t->lru_head == UINT32_MAX ||
+    lrutrack_assert(t->lru_head == UINT32_MAX ||
         t->lru_head < t->hash_table_size);
-    assert(t->lru_tail == UINT32_MAX ||
+    lrutrack_assert(t->lru_tail == UINT32_MAX ||
         t->lru_tail < t->hash_table_size);
-    assert(t->lru_head == UINT32_MAX ||
+    lrutrack_assert(t->lru_head == UINT32_MAX ||
         t->hash_table_lru_links[t->lru_head * 2 + 0] == UINT32_MAX);
-    assert(t->lru_tail == UINT32_MAX ||
+    lrutrack_assert(t->lru_tail == UINT32_MAX ||
         t->hash_table_lru_links[t->lru_tail * 2 + 1] == UINT32_MAX);
 
-#if LRUTRACK_HC_TESTS
+#if LRUTRACK_HC_TESTS && !defined(NDEBUG)
     uint32_t prev_iter = UINT32_MAX;
     uint32_t iter = t->lru_head;
     while (iter != UINT32_MAX) {
-        assert(iter < t->hash_table_size);
-        assert(t->hash_table_lru_links[iter * 2 + 0] == prev_iter);
+        lrutrack_assert(iter < t->hash_table_size);
+        lrutrack_assert(t->hash_table_lru_links[iter * 2 + 0] == prev_iter);
         prev_iter = iter;
         iter = t->hash_table_lru_links[iter * 2 + 1];
     }
 
-    assert(prev_iter == t->lru_tail);
+    lrutrack_assert(prev_iter == t->lru_tail);
 
     for (uint32_t i = 0; i < t->hash_table_size; ++i) {
-        assert(t->hash_table_lru_links[i * 2 + 0] != i);
-        assert(t->hash_table_lru_links[i * 2 + 1] != i);
+        lrutrack_assert(t->hash_table_lru_links[i * 2 + 0] != i);
+        lrutrack_assert(t->hash_table_lru_links[i * 2 + 1] != i);
         if (t->hash_table[i] == UINT32_MAX) {
-            assert(t->hash_table_lru_links[i * 2 + 0] == UINT32_MAX);
-            assert(t->hash_table_lru_links[i * 2 + 1] == UINT32_MAX);
+            lrutrack_assert(t->hash_table_lru_links[i * 2 + 0] == UINT32_MAX);
+            lrutrack_assert(t->hash_table_lru_links[i * 2 + 1] == UINT32_MAX);
         }
     }
 
     for (uint32_t i = 0; i < t->hash_table_size; ++i) {
-        assert(t->hash_table[i] == UINT32_MAX ||
+        lrutrack_assert(t->hash_table[i] == UINT32_MAX ||
             t->hash_table[i] < t->num_items);
         uint32_t iter = t->hash_table[i];
         while (iter != UINT32_MAX) {
@@ -161,17 +165,17 @@ static void lrutrack_check_internal_state(const lrutrack_t *t) {
 
 static uint32_t lrutrack_find_index(const lrutrack_t *t, const void *key,
     uint32_t key_length, uint32_t hash) {
-    assert(key != NULL && key_length != 0);
-    assert(hash < t->hash_table_size);
-    assert(hash == lrutrack_hash(key, key_length, t->seed,
+    lrutrack_assert(key != NULL && key_length != 0);
+    lrutrack_assert(hash < t->hash_table_size);
+    lrutrack_assert(hash == lrutrack_hash(key, key_length, t->seed,
         t->hash_table_size));
     uint32_t iter = t->hash_table[hash];
-    assert(iter == UINT32_MAX || iter < t->num_items);
+    lrutrack_assert(iter == UINT32_MAX || iter < t->num_items);
     while (iter != UINT32_MAX &&
         !lrutrack_cmp_keys(key, key_length,
             t->items[iter].key, t->items[iter].key_length)) {
         iter = t->items[iter].next;
-        assert(iter == UINT32_MAX || iter < t->num_items);
+        lrutrack_assert(iter == UINT32_MAX || iter < t->num_items);
     }
     return iter;
 }
@@ -180,14 +184,14 @@ static uint32_t lrutrack_find_index(const lrutrack_t *t, const void *key,
 
 static uint32_t lrutrack_find_index(const lrutrack_t *t, uint32_t key,
     uint32_t hash) {
-    assert(hash < t->hash_table_size);
-    assert(lrutrack_is_power_of_two(t->hash_table_size));
-    assert(hash == (key & (t->hash_table_size - 1)));
+    lrutrack_assert(hash < t->hash_table_size);
+    lrutrack_assert(lrutrack_is_power_of_two(t->hash_table_size));
+    lrutrack_assert(hash == (key & (t->hash_table_size - 1)));
     uint32_t iter = t->hash_table[hash];
-    assert(iter == UINT32_MAX || iter < t->num_items);
+    lrutrack_assert(iter == UINT32_MAX || iter < t->num_items);
     while (iter != UINT32_MAX && key != t->items[iter].key) {
         iter = t->items[iter].next;
-        assert(iter == UINT32_MAX || iter < t->num_items);
+        lrutrack_assert(iter == UINT32_MAX || iter < t->num_items);
     }
     return iter;
 }
@@ -259,9 +263,9 @@ lrutrack_t *lrutrack_create(uint32_t hash_table_size,
     lrutrack_value_t invalid_value,
     void *evict_user, lrutrack_evict_func_t evict_func,
     lrutrack_malloc_func_t malloc_func, lrutrack_free_func_t free_func) {
-    assert(hash_table_size != 0);
-    assert(lrutrack_is_power_of_two(hash_table_size));
-    assert(evict_func && malloc_func && free_func);
+    lrutrack_assert(hash_table_size != 0);
+    lrutrack_assert(lrutrack_is_power_of_two(hash_table_size));
+    lrutrack_assert(evict_func && malloc_func && free_func);
 
     size_t hash_table_bytesize = sizeof(uint32_t) * hash_table_size;
     uint32_t *hash_table = malloc_func(hash_table_bytesize);
@@ -345,9 +349,9 @@ void lrutrack_destroy(lrutrack_t *t) {
             t->evict_func(t->evict_user, item->value);
         } else {
 #if !LRUTRACK_32BIT_KEY
-            assert(item->key == NULL);
+            lrutrack_assert(item->key == NULL);
 #endif
-            assert(item->value == t->invalid_value);
+            lrutrack_assert(item->value == t->invalid_value);
         }
     }
 
@@ -365,13 +369,13 @@ int lrutrack_insert_32(lrutrack_t *t, uint32_t key, lrutrack_value_t value)
 #endif
 {
     lrutrack_check_internal_state(t);
-    assert(value != t->invalid_value);
+    lrutrack_assert(value != t->invalid_value);
 
 #if !LRUTRACK_32BIT_KEY
-    assert(key && key_length != 0);
+    lrutrack_assert(key && key_length != 0);
     uint32_t hash = lrutrack_hash(key, key_length, t->seed,
         t->hash_table_size);
-    assert(lrutrack_find_index(t, key, key_length, hash) == UINT32_MAX);
+    lrutrack_assert(lrutrack_find_index(t, key, key_length, hash) == UINT32_MAX);
 #else
     uint32_t hash = key & (t->hash_table_size - 1);
 #endif
@@ -381,7 +385,7 @@ int lrutrack_insert_32(lrutrack_t *t, uint32_t key, lrutrack_value_t value)
 
         if (old_num_items == 0) {
             uint32_t new_num_items = t->hash_table_size;
-            assert(lrutrack_is_power_of_two(new_num_items));
+            lrutrack_assert(lrutrack_is_power_of_two(new_num_items));
 
             t->items = t->malloc_func(sizeof(*t->items) * new_num_items);
             if (!t->items)
@@ -425,10 +429,10 @@ int lrutrack_insert_32(lrutrack_t *t, uint32_t key, lrutrack_value_t value)
     }
 
     uint32_t index = t->first_free; // Take first free
-    assert(index < t->num_items);
+    lrutrack_assert(index < t->num_items);
     lrutrack_item_t *item = &t->items[index];
 
-    assert(item->value == t->invalid_value);
+    lrutrack_assert(item->value == t->invalid_value);
 
 #if !LRUTRACK_32BIT_KEY
     item->key = t->malloc_func(key_length);
@@ -445,8 +449,8 @@ int lrutrack_insert_32(lrutrack_t *t, uint32_t key, lrutrack_value_t value)
 
     if (t->hash_table[hash] == UINT32_MAX) {
         // Hash table row not in LRU list yet
-        assert(t->hash_table_lru_links[hash * 2 + 0] == UINT32_MAX);
-        assert(t->hash_table_lru_links[hash * 2 + 1] == UINT32_MAX);
+        lrutrack_assert(t->hash_table_lru_links[hash * 2 + 0] == UINT32_MAX);
+        lrutrack_assert(t->hash_table_lru_links[hash * 2 + 1] == UINT32_MAX);
         lrutrack_insert_to_lru_head(t, hash);
     } else {
         lrutrack_move_to_lru_head(t, hash);
@@ -471,7 +475,7 @@ int lrutrack_remove_32(lrutrack_t *t, uint32_t key)
     lrutrack_check_internal_state(t);
 
 #if !LRUTRACK_32BIT_KEY
-    assert(key != NULL && key_length != 0);
+    lrutrack_assert(key != NULL && key_length != 0);
     uint32_t hash = lrutrack_hash(key, key_length, t->seed,
         t->hash_table_size);
     uint32_t index = lrutrack_find_index(t, key, key_length, hash);
@@ -483,11 +487,11 @@ int lrutrack_remove_32(lrutrack_t *t, uint32_t key)
     if (index == UINT32_MAX)
         return LRUTRACK_NOT_FOUND;
 
-    assert(index < t->num_items);
+    lrutrack_assert(index < t->num_items);
     lrutrack_item_t *item = &t->items[index];
-    assert(item->value != t->invalid_value);
+    lrutrack_assert(item->value != t->invalid_value);
 
-    assert(t->evict_func);
+    lrutrack_assert(t->evict_func);
     t->evict_func(t->evict_user, item->value);
 
     uint32_t prev_index = UINT32_MAX;
@@ -500,14 +504,14 @@ int lrutrack_remove_32(lrutrack_t *t, uint32_t key)
     }
 
     if (prev_index == UINT32_MAX) {
-        assert(t->hash_table[hash] == index);
+        lrutrack_assert(t->hash_table[hash] == index);
         t->hash_table[hash] = item->next;
         if (t->hash_table[hash] == UINT32_MAX) {
             // Hash table row is empty
             lrutrack_remove_from_lru(t, hash);
         }
     } else {
-        assert(t->items[prev_index].next == index);
+        lrutrack_assert(t->items[prev_index].next == index);
         t->items[prev_index].next = item->next;
     }
 
@@ -536,7 +540,7 @@ lrutrack_value_t lrutrack_use_32(lrutrack_t *t, uint32_t key)
     lrutrack_check_internal_state(t);
 
 #if !LRUTRACK_32BIT_KEY
-    assert(key != NULL && key_length != 0);
+    lrutrack_assert(key != NULL && key_length != 0);
     uint32_t hash = lrutrack_hash(key, key_length, t->seed,
         t->hash_table_size);
     uint32_t index = lrutrack_find_index(t, key, key_length, hash);
@@ -550,7 +554,7 @@ lrutrack_value_t lrutrack_use_32(lrutrack_t *t, uint32_t key)
 
     lrutrack_move_to_lru_head(t, hash);
 
-    assert(index < t->num_items);
+    lrutrack_assert(index < t->num_items);
     lrutrack_item_t *item = &t->items[index];
     return item->value;
 }
@@ -562,17 +566,17 @@ lrutrack_value_t lrutrack_use_32(lrutrack_t *t, uint32_t key)
 
 int lrutrack_insert_strkey(lrutrack_t *t, const char *key,
     lrutrack_value_t value) {
-    assert(key != NULL && strlen(key) <= UINT32_MAX);
+    lrutrack_assert(key != NULL && strlen(key) <= UINT32_MAX);
     return lrutrack_insert(t, key, (uint32_t)strlen(key), value);
 }
 
 int lrutrack_remove_strkey(lrutrack_t *t, const char *key) {
-    assert(key != NULL && strlen(key) <= UINT32_MAX);
+    lrutrack_assert(key != NULL && strlen(key) <= UINT32_MAX);
     return lrutrack_remove(t, key, (uint32_t)strlen(key));
 }
 
 lrutrack_value_t lrutrack_use_strkey(lrutrack_t *t, const char *key) {
-    assert(key != NULL && strlen(key) <= UINT32_MAX);
+    lrutrack_assert(key != NULL && strlen(key) <= UINT32_MAX);
     return lrutrack_use(t, key, (uint32_t)strlen(key));
 }
 
@@ -586,11 +590,11 @@ void lrutrack_remove_all(lrutrack_t *t) {
     for (uint32_t i = 0; i < t->hash_table_size; ++i) {
         uint32_t iter = t->hash_table[i];
         while (iter != UINT32_MAX) {
-            assert(iter < t->num_items);
+            lrutrack_assert(iter < t->num_items);
             lrutrack_item_t *item = &t->items[iter];
-            assert(item->value != t->invalid_value);
+            lrutrack_assert(item->value != t->invalid_value);
 
-            assert(t->evict_func);
+            lrutrack_assert(t->evict_func);
             t->evict_func(t->evict_user, item->value);
 
 #if !LRUTRACK_32BIT_KEY
@@ -629,13 +633,13 @@ int lrutrack_remove_lru_bucket(lrutrack_t *t) {
     lrutrack_check_internal_state(t);
 
     if (t->lru_tail == UINT32_MAX) {
-        assert(t->lru_head == UINT32_MAX);
+        lrutrack_assert(t->lru_head == UINT32_MAX);
         return LRUTRACK_NOT_FOUND;
     }
 
     uint32_t new_tail = t->hash_table_lru_links[t->lru_tail * 2 + 0];
     t->hash_table_lru_links[t->lru_tail * 2 + 0] = UINT32_MAX;
-    assert(t->hash_table_lru_links[t->lru_tail * 2 + 1] == UINT32_MAX);
+    lrutrack_assert(t->hash_table_lru_links[t->lru_tail * 2 + 1] == UINT32_MAX);
 
     if (new_tail != UINT32_MAX)
         t->hash_table_lru_links[new_tail * 2 + 1] = UINT32_MAX;
@@ -650,9 +654,9 @@ int lrutrack_remove_lru_bucket(lrutrack_t *t) {
     int num_removed = 0;
 
     while (iter != UINT32_MAX) {
-        assert(iter < t->num_items);
+        lrutrack_assert(iter < t->num_items);
         lrutrack_item_t *item = &t->items[iter];
-        assert(item->value != t->invalid_value);
+        lrutrack_assert(item->value != t->invalid_value);
 
 #if !LRUTRACK_32BIT_KEY
         t->free_func(item->key);
@@ -660,7 +664,7 @@ int lrutrack_remove_lru_bucket(lrutrack_t *t) {
         item->key_length = 0;
 #endif
 
-        assert(t->evict_func);
+        lrutrack_assert(t->evict_func);
         t->evict_func(t->evict_user, item->value);
 
         item->value = t->invalid_value;
