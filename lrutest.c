@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#define lrutrack_expect(x) do { if (!(x)) abort(); } while (0)
+
 typedef struct tracked_allocation_t tracked_allocation_t;
 typedef struct tracked_allocation_t {
     void *ptr;
@@ -39,7 +41,7 @@ static void free_wrapper(void *ptr) {
     tracked_allocation_t *iter = allocations_head.next;
     while (iter) {
         if (iter->ptr == ptr) {
-            assert(total_bytes_allocated >= iter->sz);
+            lrutrack_expect(total_bytes_allocated >= iter->sz);
             total_bytes_allocated -= iter->sz;
             prev->next = iter->next;
             free(iter);
@@ -51,7 +53,7 @@ static void free_wrapper(void *ptr) {
         iter = iter->next;
     }
 
-    assert(found);
+    lrutrack_expect(found);
     free(ptr);
 }
 
@@ -104,11 +106,11 @@ static void _use(lrutrack_t *t, const char *key, lrutrack_value_t expected_value
 #else
     lrutrack_value_t v = lrutrack_use_32(t, fnv32a_str(key, HASH_SEED));
 #endif
+	lrutrack_expect(v == expected_value);
     if (v == INVALID_VALUE) {
         printf("Using %s - not found\n", key);
     } else {
         printf("Using %s\n", key);
-        assert(v == expected_value);
     }
 }
 
@@ -137,20 +139,20 @@ int main() {
     //lrutrack_remove_all(t);
     _insert(t, "789", 789);
     lrutrack_remove_lru_bucket(t);
-    _use(t, "123", 123);
-    _use(t, "234", 234);
+    _use(t, "123", INVALID_VALUE);
+    _use(t, "234", INVALID_VALUE);
     _use(t, "456", 456);
     _insert(t, "890", 890);
     _remove(t, "456");
-    _use(t, "345", 345);
-    _use(t, "456", 456);
+    _use(t, "345", INVALID_VALUE);
+    _use(t, "456", INVALID_VALUE);
 
     printf("lrutrack_destroy\n");
     lrutrack_destroy(t);
     t = NULL;
 
-    assert(total_bytes_allocated == 0);
-    assert(allocations_head.next == NULL);
+    lrutrack_expect(total_bytes_allocated == 0);
+    lrutrack_expect(allocations_head.next == NULL);
 
     return EXIT_SUCCESS;
 }
